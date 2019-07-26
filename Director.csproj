@@ -36,6 +36,7 @@
 
   <ItemGroup>
     <Compile Include="src/Director.cs" />
+    <Compile Include="src/DirectorStep.cs" />
   </ItemGroup>
 
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

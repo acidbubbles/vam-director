@@ -23,6 +23,7 @@ public class Director : MVRScript
     private JSONStorableBool _attachWindowCameraJSON;
     private Atom _windowCamera;
     private FreeControllerV3 _windowCameraController;
+    private JSONStorableBool _activePassenger;
 
     public override void Init()
     {
@@ -58,18 +59,17 @@ public class Director : MVRScript
         {
             if (_active && !_activeJSON.val)
             {
+                RestorePassenger();
                 Restore();
                 return;
             }
 
-            var superController = SuperController.singleton;
-            var navigationRig = superController.navigationRig;
-
             if (!_active && _activeJSON.val)
             {
+                var navigationRig = SuperController.singleton.navigationRig;
                 _previousRotation = navigationRig.rotation;
                 _previousPosition = navigationRig.position;
-                _previousPlayerHeight = superController.playerHeightAdjust;
+                _previousPlayerHeight = SuperController.singleton.playerHeightAdjust;
                 _active = true;
             }
 
@@ -82,52 +82,119 @@ public class Director : MVRScript
                 {
                     _lastStep = currentStep;
 
+                    RestorePassenger();
+                    if (!ApplyPassenger(currentStep))
                     {
-                        var navigationRigRotation = currentStep.transform.rotation;
-                        if (!superController.MonitorRig.gameObject.activeSelf)
-                            navigationRigRotation *= Quaternion.Euler(0, navigationRig.eulerAngles.y - _possessor.transform.eulerAngles.y, 0f);
-                        navigationRig.rotation = navigationRigRotation;
-                    }
-
-                    {
-                        var up = navigationRig.up;
-                        var positionOffset = navigationRig.position + currentStep.transform.position - _possessor.autoSnapPoint.position;
-                        // Adjust the player height so the user can adjust as needed
-                        var playerHeightAdjustOffset = Vector3.Dot(positionOffset - navigationRig.position, up);
-                        navigationRig.position = positionOffset + up * -playerHeightAdjustOffset;
-                        superController.playerHeightAdjust += playerHeightAdjustOffset;
+                        ApplyRotation(currentStep);
+                        ApplyPosition(currentStep);
                     }
                 }
             }
 
             if (_attachWindowCameraJSON.val)
-            {
-                if (_windowCamera == null)
-                {
-                    _windowCamera = superController.GetAtomByUid("WindowCamera");
-                    if (_windowCamera == null)
-                    {
-                        SuperController.LogError("There is no WindowCamera atom in the scene, maybe you deleted or renamed it?");
-                        _attachWindowCameraJSON.val = false;
-                        return;
-                    }
-                    _windowCamera.GetBoolJSONParam("on").val = true;
-                    _windowCameraController = _windowCamera.freeControllers[0];
-                    _windowCameraController.canGrabPosition = false;
-                    _windowCameraController.canGrabRotation = false;
-                }
-                _windowCameraController.transform.SetPositionAndRotation(currentStep.transform.position, currentStep.transform.rotation);
-            }
+                ApplyWindowCamera(currentStep);
             else if (_windowCamera != null)
-            {
                 RestoreWindowCamera();
-            }
         }
         catch (Exception e)
         {
             SuperController.LogError("Failed to update: " + e);
             Restore();
         }
+    }
+
+    private void ApplyWindowCamera(AnimationStep currentStep)
+    {
+        if (_windowCamera == null)
+        {
+            _windowCamera = SuperController.singleton.GetAtomByUid("WindowCamera");
+            if (_windowCamera == null)
+            {
+                SuperController.LogError("There is no WindowCamera atom in the scene, maybe you deleted or renamed it?");
+                _attachWindowCameraJSON.val = false;
+                return;
+            }
+            _windowCamera.GetBoolJSONParam("on").val = true;
+            _windowCameraController = _windowCamera.freeControllers[0];
+            _windowCameraController.canGrabPosition = false;
+            _windowCameraController.canGrabRotation = false;
+        }
+        _windowCameraController.transform.SetPositionAndRotation(currentStep.transform.position, currentStep.transform.rotation);
+    }
+
+    private void ApplyPosition(AnimationStep currentStep)
+    {
+        var navigationRig = SuperController.singleton.navigationRig;
+
+        var up = navigationRig.up;
+        var positionOffset = navigationRig.position + currentStep.transform.position - _possessor.autoSnapPoint.position;
+        // Adjust the player height so the user can adjust as needed
+        var playerHeightAdjustOffset = Vector3.Dot(positionOffset - navigationRig.position, up);
+        navigationRig.position = positionOffset + up * -playerHeightAdjustOffset;
+        SuperController.singleton.playerHeightAdjust += playerHeightAdjustOffset;
+    }
+
+    private void ApplyRotation(AnimationStep currentStep)
+    {
+        var navigationRig = SuperController.singleton.navigationRig;
+        var navigationRigRotation = currentStep.transform.rotation;
+        if (!SuperController.singleton.MonitorRig.gameObject.activeSelf)
+            navigationRigRotation *= Quaternion.Euler(0, navigationRig.eulerAngles.y - _possessor.transform.eulerAngles.y, 0f);
+        navigationRig.rotation = navigationRigRotation;
+    }
+
+    private bool ApplyPassenger(AnimationStep currentStep)
+    {
+        // TODO: Check with EndsWith, don't rely on being the first
+        var stepPlugin = currentStep.containingAtom.GetStorableByID("plugin#0_DirectorStep");
+        if (stepPlugin == null)
+        {
+            return false;
+        }
+        var stepPassenger = stepPlugin.GetStringChooserParamValue("Passenger");
+        if (stepPassenger == "None")
+        {
+#if (VAM_DIAGNOSTICS)
+            SuperController.LogMessage("No passenger target");
+#endif
+            return false;
+        }
+        var passengerAtom = SuperController.singleton.GetAtomByUid(stepPassenger);
+        if (passengerAtom == null)
+        {
+#if (VAM_DIAGNOSTICS)
+            SuperController.LogMessage("Could not find the specified atom");
+#endif
+            return false;
+        }
+        // TODO: Check with EndsWith, don't rely on being the first
+        var passengerPlugin = passengerAtom.containingAtom.GetStorableByID("plugin#0_Passenger");
+        if (passengerPlugin == null)
+        {
+#if (VAM_DIAGNOSTICS)
+            SuperController.LogMessage("Could not find the passenger plugin storable");
+#endif
+            return false;
+        }
+        _activePassenger = passengerPlugin.GetBoolJSONParam("Active");
+        if (_activePassenger == null)
+        {
+#if (VAM_DIAGNOSTICS)
+            SuperController.LogMessage("Could not find the passenger active storable");
+#endif
+            return false;
+        }
+        _activePassenger.val = true;
+        return true;
+    }
+
+    private void RestorePassenger()
+    {
+        if (_activePassenger == null)
+            return;
+
+        _activePassenger.val = false;
+        _activePassenger = null;
     }
 
     private void RestoreWindowCamera()
@@ -148,8 +215,9 @@ public class Director : MVRScript
 
     public void OnDisable()
     {
-        Restore();
+        RestorePassenger();
         RestoreWindowCamera();
+        Restore();
     }
 
     private void Restore()
