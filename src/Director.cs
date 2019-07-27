@@ -11,11 +11,11 @@ public class Director : MVRScript
 {
     private Possessor _possessor;
     private FreeControllerV3 _headControl;
-    private JSONStorableBool _activeJSON;
+    private JSONStorableStringChooser _activeJSON;
     private Vector3 _previousPosition;
     private float _previousPlayerHeight;
     private Quaternion _previousRotation;
-    private bool _active;
+    private bool _cameraActive;
     private bool _windowCameraActive;
     private AnimationPattern _pattern;
     private UserPreferences _preferences;
@@ -33,6 +33,7 @@ public class Director : MVRScript
             _possessor = SuperController.singleton.centerCameraTarget.transform.GetComponent<Possessor>();
 
             InitControls();
+            UpdateActivation(_activeJSON.val);
         }
         catch (Exception e)
         {
@@ -42,64 +43,99 @@ public class Director : MVRScript
 
     private void InitControls()
     {
-        _activeJSON = new JSONStorableBool("Active", false);
-        RegisterBool(_activeJSON);
-        var activeToggle = CreateToggle(_activeJSON, false);
+        _activeJSON = new JSONStorableStringChooser("Active", (new[] { "None", "Camera", "WindowCamera" }).ToList(), "None", "Activation Mode", val => UpdateActivation(val));
+        RegisterStringChooser(_activeJSON);
+        var activePopup = CreateScrollablePopup(_activeJSON, false);
+        activePopup.popupPanelHeight = 600f;
+    }
 
-        // TODO: Changing this while active can screw up things.
-        _attachWindowCameraJSON = new JSONStorableBool("WindowCamera", false);
-        RegisterBool(_attachWindowCameraJSON);
-        var attachWindowCameraToggle = CreateToggle(_attachWindowCameraJSON, false);
-        attachWindowCameraToggle.label = "Attach WindowCamera (setup)";
+    private void UpdateActivation(string val)
+    {
+        Deactivate();
+        switch (val)
+        {
+            case "Camera":
+                ActivateCamera();
+                break;
+            case "WindowCamera":
+                ActivateWindowCamera();
+                break;
+        }
+    }
+
+    private void ActivateCamera()
+    {
+        var navigationRig = SuperController.singleton.navigationRig;
+        _previousRotation = navigationRig.rotation;
+        _previousPosition = navigationRig.position;
+        _previousPlayerHeight = SuperController.singleton.playerHeightAdjust;
+        _cameraActive = true;
+    }
+
+    private void ActivateWindowCamera()
+    {
+        _windowCameraActive = true;
+    }
+
+    private void Deactivate()
+    {
+        _lastStep = null;
+
+        if (_cameraActive)
+        {
+            RestorePassenger();
+            RestoreCameraPosition();
+            _cameraActive = false;
+        }
+
+        if (_windowCameraActive)
+        {
+            RestoreWindowCamera();
+            _windowCameraActive = false;
+        }
     }
 
     public void Update()
     {
         try
         {
-            if (_active && !_activeJSON.val)
-            {
-                RestorePassenger();
-                Restore();
+            if (!_cameraActive && !_windowCameraActive)
                 return;
-            }
-
-            if (!_active && _activeJSON.val)
-            {
-                var navigationRig = SuperController.singleton.navigationRig;
-                _previousRotation = navigationRig.rotation;
-                _previousPosition = navigationRig.position;
-                _previousPlayerHeight = SuperController.singleton.playerHeightAdjust;
-                _active = true;
-            }
 
             // NOTE: activeStep is protected for some reason
             var currentStep = _pattern.steps.FirstOrDefault(step => step.active);
 
-            if (_active)
+            if (_lastStep != currentStep)
             {
-                if (_lastStep != currentStep)
-                {
-                    _lastStep = currentStep;
+                _lastStep = currentStep;
 
+
+                if (_windowCameraActive)
+                {
+                    ApplyWindowCamera(currentStep);
+                }
+
+                if (_cameraActive)
+                {
                     RestorePassenger();
-                    if (!ApplyPassenger(currentStep))
+
+                    _activePassenger = GetStepPassengerTarget(currentStep);
+                    if (_activePassenger != null)
+                    {
+                        _activePassenger.SetVal(true);
+                    }
+                    else
                     {
                         ApplyRotation(currentStep);
                         ApplyPosition(currentStep);
                     }
                 }
             }
-
-            if (_attachWindowCameraJSON.val)
-                ApplyWindowCamera(currentStep);
-            else if (_windowCamera != null)
-                RestoreWindowCamera();
         }
         catch (Exception e)
         {
             SuperController.LogError("Failed to update: " + e);
-            Restore();
+            RestoreCameraPosition();
         }
     }
 
@@ -143,49 +179,26 @@ public class Director : MVRScript
         navigationRig.rotation = navigationRigRotation;
     }
 
-    private bool ApplyPassenger(AnimationStep currentStep)
+    private JSONStorableBool GetStepPassengerTarget(AnimationStep currentStep)
     {
-        // TODO: Check with EndsWith, don't rely on being the first
-        var stepPlugin = currentStep.containingAtom.GetStorableByID("plugin#0_DirectorStep");
-        if (stepPlugin == null)
-        {
-            return false;
-        }
-        var stepPassenger = stepPlugin.GetStringChooserParamValue("Passenger");
+        var directorStepStorableID = currentStep.containingAtom.GetStorableIDs().FirstOrDefault(id => id.EndsWith("DirectorStep"));
+        if (directorStepStorableID == null) return null;
+        // if (directorStepStorableID == null) SuperController.LogMessage(string.Join(", ", currentStep.containingAtom.GetStorableIDs().ToArray()));
+        var directorStepStorable = currentStep.containingAtom.GetStorableByID(directorStepStorableID);
+
+        var stepPassenger = directorStepStorable.GetStringChooserParamValue("Passenger");
         if (stepPassenger == "None")
-        {
-#if (VAM_DIAGNOSTICS)
-            SuperController.LogMessage("No passenger target");
-#endif
-            return false;
-        }
+            return null;
+
         var passengerAtom = SuperController.singleton.GetAtomByUid(stepPassenger);
         if (passengerAtom == null)
-        {
-#if (VAM_DIAGNOSTICS)
-            SuperController.LogMessage("Could not find the specified atom");
-#endif
-            return false;
-        }
-        // TODO: Check with EndsWith, don't rely on being the first
-        var passengerPlugin = passengerAtom.containingAtom.GetStorableByID("plugin#0_Passenger");
-        if (passengerPlugin == null)
-        {
-#if (VAM_DIAGNOSTICS)
-            SuperController.LogMessage("Could not find the passenger plugin storable");
-#endif
-            return false;
-        }
-        _activePassenger = passengerPlugin.GetBoolJSONParam("Active");
-        if (_activePassenger == null)
-        {
-#if (VAM_DIAGNOSTICS)
-            SuperController.LogMessage("Could not find the passenger active storable");
-#endif
-            return false;
-        }
-        _activePassenger.val = true;
-        return true;
+            return null;
+
+        var passengerStorableID = containingAtom.GetStorableIDs().FirstOrDefault(id => id.EndsWith("Passenger"));
+        if (passengerStorableID == null) return null;
+        var passengerStorable = currentStep.containingAtom.GetStorableByID(passengerStorableID);
+
+        return passengerStorable?.GetBoolJSONParam("Active");
     }
 
     private void RestorePassenger()
@@ -213,23 +226,15 @@ public class Director : MVRScript
         }
     }
 
-    public void OnDisable()
+    private void RestoreCameraPosition()
     {
-        RestorePassenger();
-        RestoreWindowCamera();
-        Restore();
-    }
-
-    private void Restore()
-    {
-        if (!_active)
-            return;
-
-        _active = false;
-        _lastStep = null;
-
         SuperController.singleton.navigationRig.rotation = _previousRotation;
         SuperController.singleton.navigationRig.position = _previousPosition;
         SuperController.singleton.playerHeightAdjust = _previousPlayerHeight;
+    }
+
+    public void OnDisable()
+    {
+        Deactivate();
     }
 }
