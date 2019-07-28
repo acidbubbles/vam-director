@@ -16,23 +16,72 @@ public class Director : MVRScript
         public const string NavigationRig = "NavigationRig";
     }
 
+    public class NavigationRigBackup
+    {
+        private Vector3 _previousPosition;
+        private float _previousPlayerHeight;
+        private Quaternion _previousRotation;
+
+        public static NavigationRigBackup Snapshot()
+        {
+            var value = new NavigationRigBackup();
+            var navigationRig = SuperController.singleton.navigationRig;
+            value._previousRotation = navigationRig.rotation;
+            value._previousPosition = navigationRig.position;
+            value._previousPlayerHeight = SuperController.singleton.playerHeightAdjust;
+            return value;
+        }
+
+        public void Restore()
+        {
+            SuperController.singleton.navigationRig.rotation = _previousRotation;
+            SuperController.singleton.navigationRig.position = _previousPosition;
+            SuperController.singleton.playerHeightAdjust = _previousPlayerHeight;
+        }
+    }
+
+    public class WindowCameraBackup
+    {
+        private Atom _atom;
+        private FreeControllerV3 _controller;
+        private bool _previousOn;
+        private Vector3 _previousPosition;
+        private Quaternion _previousRotation;
+
+        public static WindowCameraBackup Snapshot(Atom windowCamera, FreeControllerV3 windowCameraController)
+        {
+            var value = new WindowCameraBackup();
+            value._atom = windowCamera;
+            value._controller = windowCameraController;
+            value._previousOn = windowCamera.GetBoolJSONParam("on").val;
+            value._previousRotation = windowCameraController.transform.rotation;
+            value._previousPosition = windowCameraController.transform.position;
+            return value;
+        }
+
+        public void Restore()
+        {
+            _atom.GetBoolJSONParam("on").val = false;
+            _controller.transform.SetPositionAndRotation(_previousPosition, _previousRotation);
+            _controller.canGrabPosition = true;
+            _controller.canGrabRotation = true;
+        }
+    }
+
     private JSONStorableStringChooser _modeJSON;
 
     private Possessor _possessor;
-
-    private bool _navigationRigActive;
-    private bool _windowCameraActive;
-    private bool _failedOnce;
-
-    private Vector3 _previousPosition;
-    private float _previousPlayerHeight;
-    private Quaternion _previousRotation;
-
     private AnimationPattern _pattern;
     private AnimationStep _lastStep;
     private Atom _windowCamera;
     private FreeControllerV3 _windowCameraController;
     private JSONStorableBool _activePassenger;
+
+    private bool _navigationRigActive;
+    private bool _windowCameraActive;
+    private bool _failedOnce;
+    private NavigationRigBackup _navigationRigBackup;
+    private WindowCameraBackup _windowCameraBackup;
 
     public override void Init()
     {
@@ -79,10 +128,7 @@ public class Director : MVRScript
     private void ActivateNavigationRig()
     {
         _failedOnce = false;
-        var navigationRig = SuperController.singleton.navigationRig;
-        _previousRotation = navigationRig.rotation;
-        _previousPosition = navigationRig.position;
-        _previousPlayerHeight = SuperController.singleton.playerHeightAdjust;
+        _navigationRigBackup = NavigationRigBackup.Snapshot();
         _navigationRigActive = true;
     }
 
@@ -98,8 +144,9 @@ public class Director : MVRScript
         }
 
         _failedOnce = false;
-        _windowCamera.GetBoolJSONParam("on").val = true;
         _windowCameraController = _windowCamera.freeControllers[0];
+        _windowCameraBackup = WindowCameraBackup.Snapshot(_windowCamera, _windowCameraController);
+        _windowCamera.GetBoolJSONParam("on").val = true;
         _windowCameraController.canGrabPosition = false;
         _windowCameraController.canGrabRotation = false;
         _windowCameraActive = true;
@@ -112,13 +159,15 @@ public class Director : MVRScript
         if (_navigationRigActive)
         {
             RestorePassenger();
-            RestoreNavigationRig();
+            _navigationRigBackup?.Restore();
+            _navigationRigBackup = null;
             _navigationRigActive = false;
         }
 
         if (_windowCameraActive)
         {
-            RestoreWindowCamera();
+            _windowCameraBackup?.Restore();
+            _windowCameraBackup = null;
             _windowCameraActive = false;
         }
     }
@@ -241,29 +290,6 @@ public class Director : MVRScript
 
         _activePassenger.val = false;
         _activePassenger = null;
-    }
-
-    private void RestoreWindowCamera()
-    {
-        if (_windowCamera)
-        {
-            _windowCamera.GetBoolJSONParam("on").val = false;
-            _windowCamera = null;
-        }
-
-        if (_windowCameraController)
-        {
-            _windowCameraController.canGrabPosition = true;
-            _windowCameraController.canGrabRotation = true;
-            _windowCameraController = null;
-        }
-    }
-
-    private void RestoreNavigationRig()
-    {
-        SuperController.singleton.navigationRig.rotation = _previousRotation;
-        SuperController.singleton.navigationRig.position = _previousPosition;
-        SuperController.singleton.playerHeightAdjust = _previousPlayerHeight;
     }
 
     public void OnDisable()
