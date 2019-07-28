@@ -88,6 +88,7 @@ public class Director : MVRScript
         try
         {
             _pattern = containingAtom.GetComponentInChildren<AnimationPattern>();
+            if (_pattern == null) throw new Exception("The Director plugin can only be applied on AnimationPattern.");
             _possessor = SuperController.singleton.centerCameraTarget.transform.GetComponent<Possessor>();
 
             InitControls();
@@ -109,6 +110,25 @@ public class Director : MVRScript
         RegisterStringChooser(_modeJSON);
         var activePopup = CreateScrollablePopup(_modeJSON, false);
         activePopup.popupPanelHeight = 600f;
+
+        var currentTimeJSON = _pattern.GetFloatJSONParam("currentTime");
+        if (currentTimeJSON == null)
+            throw new NullReferenceException("There was no currentTime JSON param on this animation pattern. Params: " + string.Join(", ", _pattern.GetAllParamAndActionNames().ToArray()));
+        CreateButton("Reset", true).button.onClick.AddListener(() => _pattern.ResetAnimation());
+        CreateButton("Play", true).button.onClick.AddListener(() => _pattern.Play());
+        CreateButton("Pause", true).button.onClick.AddListener(() => _pattern.Pause());
+        CreateButton("Previous Step", true).button.onClick.AddListener(() =>
+        {
+            var previousStep = _pattern.steps.Reverse().SkipWhile(s => !s.active).Skip(1).FirstOrDefault();
+            if (previousStep != null)
+                currentTimeJSON.val = previousStep.timeStep;
+        });
+        CreateButton("Next Step", true).button.onClick.AddListener(() =>
+        {
+            var nextStep = _pattern.steps.SkipWhile(s => !s.active).Skip(1).FirstOrDefault();
+            if (nextStep != null)
+                currentTimeJSON.val = nextStep.timeStep;
+        });
     }
 
     private void UpdateActivation(string val)
