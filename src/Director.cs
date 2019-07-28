@@ -9,26 +9,30 @@ using UnityEngine;
 /// </summary>
 public class Director : MVRScript
 {
-    private const string ActionNone = "None";
-    private const string ActionWindowCamera = "WindowCamera";
-    private const string ActionNavigationRig = "NavigationRig";
+    public static class Modes
+    {
+        public const string None = "None";
+        public const string WindowCamera = "WindowCamera";
+        public const string NavigationRig = "NavigationRig";
+    }
+
+    private JSONStorableStringChooser _modeJSON;
 
     private Possessor _possessor;
-    private FreeControllerV3 _headControl;
-    private JSONStorableStringChooser _activeJSON;
+
+    private bool _navigationRigActive;
+    private bool _windowCameraActive;
+    private bool _failedOnce;
+
     private Vector3 _previousPosition;
     private float _previousPlayerHeight;
     private Quaternion _previousRotation;
-    private bool _cameraActive;
-    private bool _windowCameraActive;
+
     private AnimationPattern _pattern;
-    private UserPreferences _preferences;
     private AnimationStep _lastStep;
-    private JSONStorableBool _attachWindowCameraJSON;
     private Atom _windowCamera;
     private FreeControllerV3 _windowCameraController;
     private JSONStorableBool _activePassenger;
-    private bool _failedOnce;
 
     public override void Init()
     {
@@ -38,7 +42,7 @@ public class Director : MVRScript
             _possessor = SuperController.singleton.centerCameraTarget.transform.GetComponent<Possessor>();
 
             InitControls();
-            UpdateActivation(_activeJSON.val);
+            UpdateActivation(_modeJSON.val);
         }
         catch (Exception e)
         {
@@ -48,13 +52,13 @@ public class Director : MVRScript
 
     private void InitControls()
     {
-        var defaultActive = ActionNone;
+        var defaultActive = Modes.None;
 #if (VAM_DIAGNOSTICS)
-        defaultActive = ActionWindowCamera;
+        defaultActive = Modes.WindowCamera;
 #endif
-        _activeJSON = new JSONStorableStringChooser("Active", (new[] { ActionNone, ActionNavigationRig, ActionWindowCamera }).ToList(), defaultActive, "Activation Mode", val => UpdateActivation(val));
-        RegisterStringChooser(_activeJSON);
-        var activePopup = CreateScrollablePopup(_activeJSON, false);
+        _modeJSON = new JSONStorableStringChooser("Mode", (new[] { Modes.None, Modes.NavigationRig, Modes.WindowCamera }).ToList(), defaultActive, "Mode", val => UpdateActivation(val));
+        RegisterStringChooser(_modeJSON);
+        var activePopup = CreateScrollablePopup(_modeJSON, false);
         activePopup.popupPanelHeight = 600f;
     }
 
@@ -63,28 +67,41 @@ public class Director : MVRScript
         Deactivate();
         switch (val)
         {
-            case ActionNavigationRig:
-                ActivateCamera();
+            case Modes.NavigationRig:
+                ActivateNavigationRig();
                 break;
-            case ActionWindowCamera:
+            case Modes.WindowCamera:
                 ActivateWindowCamera();
                 break;
         }
     }
 
-    private void ActivateCamera()
+    private void ActivateNavigationRig()
     {
         _failedOnce = false;
         var navigationRig = SuperController.singleton.navigationRig;
         _previousRotation = navigationRig.rotation;
         _previousPosition = navigationRig.position;
         _previousPlayerHeight = SuperController.singleton.playerHeightAdjust;
-        _cameraActive = true;
+        _navigationRigActive = true;
     }
 
     private void ActivateWindowCamera()
     {
+        _windowCamera = SuperController.singleton.GetAtomByUid("WindowCamera");
+        if (_windowCamera == null)
+        {
+            SuperController.LogError("There is no 'WindowCamera' atom in the scene, maybe you deleted or renamed it?");
+            Deactivate();
+            _modeJSON.val = Modes.None;
+            return;
+        }
+
         _failedOnce = false;
+        _windowCamera.GetBoolJSONParam("on").val = true;
+        _windowCameraController = _windowCamera.freeControllers[0];
+        _windowCameraController.canGrabPosition = false;
+        _windowCameraController.canGrabRotation = false;
         _windowCameraActive = true;
     }
 
@@ -92,16 +109,16 @@ public class Director : MVRScript
     {
         _lastStep = null;
 
-        if (_cameraActive)
+        if (_navigationRigActive)
         {
             RestorePassenger();
             RestoreNavigationRig();
-            _cameraActive = false;
+            _navigationRigActive = false;
         }
 
         if (_windowCameraActive)
         {
-            RestoreWindowCameraAtom();
+            RestoreWindowCamera();
             _windowCameraActive = false;
         }
     }
@@ -110,69 +127,55 @@ public class Director : MVRScript
     {
         try
         {
-            if (!_cameraActive && !_windowCameraActive)
+            if (!_navigationRigActive && !_windowCameraActive)
                 return;
 
             // NOTE: activeStep is protected for some reason
             var currentStep = _pattern.steps.FirstOrDefault(step => step.active);
 
-            if (_lastStep != currentStep)
+            if (_lastStep == currentStep)
+                return;
+
+            _lastStep = currentStep;
+
+            if (_windowCameraActive)
             {
-                _lastStep = currentStep;
+                UpdateWindowCamera(currentStep);
+            }
 
-                if (_windowCameraActive)
+            if (_navigationRigActive)
+            {
+                RestorePassenger();
+
+                _activePassenger = GetStepPassengerTarget(currentStep);
+                if (_activePassenger != null)
                 {
-                    ApplyWindowCamera(currentStep);
+                    _activePassenger.SetVal(true);
                 }
-
-                if (_cameraActive)
+                else
                 {
-                    RestorePassenger();
-
-                    _activePassenger = GetStepPassengerTarget(currentStep);
-                    if (_activePassenger != null)
-                    {
-                        _activePassenger.SetVal(true);
-                    }
-                    else
-                    {
-                        ApplyRotation(currentStep);
-                        ApplyPosition(currentStep);
-                    }
+                    UpdateNavigationRigRotation(currentStep);
+                    UpdateNavigationRigPosition(currentStep);
                 }
+            }
 
 #if (VAM_DIAGNOSTICS)
-                PrintDebugInfo();
+            PrintDebugInfo();
 #endif
-            }
         }
         catch (Exception e)
         {
             SuperController.LogError("Failed to update: " + e);
-            RestoreNavigationRig();
+            Deactivate();
         }
     }
 
-    private void ApplyWindowCamera(AnimationStep currentStep)
+    private void UpdateWindowCamera(AnimationStep currentStep)
     {
-        if (_windowCamera == null)
-        {
-            _windowCamera = SuperController.singleton.GetAtomByUid("WindowCamera");
-            if (_windowCamera == null)
-            {
-                SuperController.LogError("There is no WindowCamera atom in the scene, maybe you deleted or renamed it?");
-                _attachWindowCameraJSON.val = false;
-                return;
-            }
-            _windowCamera.GetBoolJSONParam("on").val = true;
-            _windowCameraController = _windowCamera.freeControllers[0];
-            _windowCameraController.canGrabPosition = false;
-            _windowCameraController.canGrabRotation = false;
-        }
         _windowCameraController.transform.SetPositionAndRotation(currentStep.transform.position, currentStep.transform.rotation);
     }
 
-    private void ApplyPosition(AnimationStep currentStep)
+    private void UpdateNavigationRigPosition(AnimationStep currentStep)
     {
         var navigationRig = SuperController.singleton.navigationRig;
 
@@ -184,7 +187,7 @@ public class Director : MVRScript
         SuperController.singleton.playerHeightAdjust += playerHeightAdjustOffset;
     }
 
-    private void ApplyRotation(AnimationStep currentStep)
+    private void UpdateNavigationRigRotation(AnimationStep currentStep)
     {
         var navigationRig = SuperController.singleton.navigationRig;
         var navigationRigRotation = currentStep.transform.rotation;
@@ -208,28 +211,27 @@ public class Director : MVRScript
         var passengerAtom = SuperController.singleton.GetAtomByUid(passengerAtomID);
         if (passengerAtom == null)
         {
-            if (!_failedOnce)
-            {
-                SuperController.LogError("Atom " + passengerAtomID + " specified in step " + currentStep.containingAtom.name + " does not exit");
-                _failedOnce = true;
-            }
+            FailOnce("Atom " + passengerAtomID + " specified in step " + currentStep.containingAtom.name + " does not exit");
             return null;
         }
 
         var passengerStorableID = passengerAtom.GetStorableIDs().FirstOrDefault(id => id.EndsWith("Passenger"));
         if (passengerStorableID == null)
         {
-            if (!_failedOnce)
-            {
-                SuperController.LogError("Atom " + passengerAtomID + " does not have the Passenger script");
-                _failedOnce = true;
-            }
+            FailOnce("Atom " + passengerAtomID + " does not have the Passenger script");
             return null;
         }
 
         var passengerStorable = passengerAtom.GetStorableByID(passengerStorableID);
 
         return passengerStorable?.GetBoolJSONParam("Active");
+    }
+
+    private void FailOnce(string message)
+    {
+        if (_failedOnce) return;
+        SuperController.LogError(message);
+        _failedOnce = true;
     }
 
     private void RestorePassenger()
@@ -241,7 +243,7 @@ public class Director : MVRScript
         _activePassenger = null;
     }
 
-    private void RestoreWindowCameraAtom()
+    private void RestoreWindowCamera()
     {
         if (_windowCamera)
         {
@@ -279,7 +281,7 @@ public class Director : MVRScript
         }
         var info = new System.Collections.Generic.List<string>();
         info.Add("Step " + _lastStep.containingAtom.name);
-        if (_cameraActive) info.Add(" [cam]");
+        if (_navigationRigActive) info.Add(" [cam]");
         if (_windowCameraActive) info.Add(" [win]");
         var target = GetStepPassengerTarget(_lastStep);
         if (target != null)
