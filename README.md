@@ -1,18 +1,16 @@
 # Virt-A-Mate Director
 
-Controls where the "camera" is. Compatible with [Passenger](https://github.com/acidbubbles/vam-passenger) for moving in and out of POV mode.
+Controls where the "camera" is by moving it to sequential Animation Pattern steps. Compatible with [Passenger](https://github.com/acidbubbles/vam-passenger) for moving in and out of POV mode.
 
 ## How to use
 
-1. Add the `Director.cs` file to an `Animation Pattern`.
-2. Check the `Active` checkbox in the plugin options to move the camera to the animation step each time a new one is activated.
-3. You can also use the `WindowCamera` option to link the camera, allowing you to place the camera yourself.
-4. Optionally activate using a button, while resetting the animation, and stopping at the end of the animation for a one-time serie.
-5. If you want a step to use Passenger, add `DirectorStep.cs` to the step and select an atom.
+1. Add the `Director.cs` file to an `Animation Pattern`. I suggest renaming the atom to `Director`.
+2. Set the mode to `WindowCamera`, this will allow you to place the camera exactly where you want it.
+3. Set the mode to `NavigationRig` to make the VR camera follow instead.
 
-## Next steps
+You can trigger this with a `UIButton`, which can also reset the Animation Pattern time to zero, and then set the mode to WindowCamera. When the animation is complete, you can trigger it off. This will make a "Play" button that behaves more like a video control.
 
-1. Make it so that Passenger automatically enable ImprovedPoV if it's present
+You can also add the `DirectorStep.cs` file to an `Animation Step`, so when the animation reaches it, it will trigger the `Passenger.cs` plugin on another atom. You can use this to trigger a person's point of view during the animation.
 
 ## License
 
