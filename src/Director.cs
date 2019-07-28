@@ -61,10 +61,9 @@ public class Director : MVRScript
 
         public void Restore()
         {
+            _controller.containingAtom.hidden = false;
             _atom.GetBoolJSONParam("on").val = false;
             _controller.transform.SetPositionAndRotation(_previousPosition, _previousRotation);
-            _controller.canGrabPosition = true;
-            _controller.canGrabRotation = true;
         }
     }
 
@@ -167,8 +166,7 @@ public class Director : MVRScript
         _windowCameraController = _windowCamera.freeControllers[0];
         _windowCameraBackup = WindowCameraBackup.Snapshot(_windowCamera, _windowCameraController);
         _windowCamera.GetBoolJSONParam("on").val = true;
-        _windowCameraController.canGrabPosition = false;
-        _windowCameraController.canGrabRotation = false;
+        _windowCameraController.containingAtom.hidden = true;
         _windowCameraActive = true;
     }
 
@@ -202,15 +200,15 @@ public class Director : MVRScript
             // NOTE: activeStep is protected for some reason
             var currentStep = _pattern.steps.FirstOrDefault(step => step.active);
 
-            if (_lastStep == currentStep)
-                return;
-
-            _lastStep = currentStep;
-
             if (_windowCameraActive)
             {
                 UpdateWindowCamera(currentStep);
             }
+
+            if (_lastStep == currentStep)
+                return;
+
+            _lastStep = currentStep;
 
             if (_navigationRigActive)
             {
