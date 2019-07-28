@@ -17,7 +17,7 @@ public class DirectorStep : MVRScript
     {
         try
         {
-            _step = containingAtom.GetComponent<AnimationStep>();
+            _step = containingAtom.parentAtom.GetComponentInChildren<AnimationStep>();
             if (_step == null)
                 throw new Exception("Can only apply DirectorStep on AnimationStep");
 
