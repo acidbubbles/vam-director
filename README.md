@@ -8,9 +8,13 @@ Controls where the "camera" is by moving it to sequential Animation Pattern step
 2. Set the mode to `WindowCamera`, this will allow you to place the camera exactly where you want it.
 3. Set the mode to `NavigationRig` to make the VR camera follow instead.
 
+## Tips
+
 You can trigger this with a `UIButton`, which can also reset the Animation Pattern time to zero, and then set the mode to WindowCamera. When the animation is complete, you can trigger it off. This will make a "Play" button that behaves more like a video control.
 
 You can also add the `DirectorStep.cs` file to an `Animation Step`, so when the animation reaches it, it will trigger the `Passenger.cs` plugin on another atom. You can use this to trigger a person's point of view during the animation.
+
+To make the animation play once, make the last step OnActive event disable Director (set `Mode` to `None`).
 
 ## License
 
