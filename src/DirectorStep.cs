@@ -9,6 +9,7 @@ using System.Linq;
 public class DirectorStep : MVRScript
 {
     private JSONStorableStringChooser _atomJSON;
+    private AnimationStep _step;
 
     public JSONStorableStringChooser Passenger { get; set; }
 
@@ -16,6 +17,10 @@ public class DirectorStep : MVRScript
     {
         try
         {
+            _step = containingAtom.GetComponent<AnimationStep>();
+            if (_step == null)
+                throw new Exception("Can only apply DirectorStep on AnimationStep");
+
             InitControls();
         }
         catch (Exception e)
@@ -35,5 +40,10 @@ public class DirectorStep : MVRScript
 
         var linkPopup = CreateScrollablePopup(_atomJSON, false);
         linkPopup.popupPanelHeight = 600f;
+
+        CreateButton("Go To Step", true).button.onClick.AddListener(() =>
+        {
+            _step.animationParent.GetFloatJSONParam("currentTime").val = _step.timeStep;
+        });
     }
 }
