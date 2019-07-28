@@ -67,18 +67,50 @@ public class Director : MVRScript
         }
     }
 
+    public class Transition
+    {
+        private readonly JSONStorableFloat _camExposure;
+        private readonly float _camExposureFrom;
+        private readonly float _camExposureTo;
+        private readonly float _duration;
+        private float _transitionTime = 0f;
+
+        public Transition(JSONStorableFloat camExposure, float camExposureFrom, float camExposureTo, float duration)
+        {
+            _camExposure = camExposure;
+            _camExposureFrom = camExposureFrom;
+            _camExposureTo = camExposureTo;
+            _duration = duration;
+        }
+
+        public bool Update()
+        {
+            _transitionTime += Time.deltaTime;
+            _camExposure.val = Mathf.Lerp(_camExposureFrom, _camExposureTo, _transitionTime / _duration);
+            return _transitionTime >= _duration;
+        }
+
+        public void Complete()
+        {
+            _camExposure.val = _camExposureTo;
+        }
+    }
+
     private JSONStorableStringChooser _modeJSON;
 
     private Possessor _possessor;
     private AnimationPattern _pattern;
+    private Transition _transition;
     private AnimationStep _lastStep;
     private Atom _windowCamera;
     private FreeControllerV3 _windowCameraController;
     private JSONStorableBool _activePassenger;
+    private JSONStorableFloat _camExposureJSON;
 
     private bool _navigationRigActive;
     private bool _windowCameraActive;
     private bool _failedOnce;
+    private float _camExposureBackup;
     private NavigationRigBackup _navigationRigBackup;
     private WindowCameraBackup _windowCameraBackup;
 
@@ -89,6 +121,7 @@ public class Director : MVRScript
             _pattern = containingAtom.GetComponentInChildren<AnimationPattern>();
             if (_pattern == null) throw new Exception("The Director plugin can only be applied on AnimationPattern.");
             _possessor = SuperController.singleton.centerCameraTarget.transform.GetComponent<Possessor>();
+            _camExposureJSON = GameObject.FindObjectOfType<SkyshopLightController>()?.GetFloatJSONParam("camExposure");
 
             InitControls();
             UpdateActivation(_modeJSON.val);
@@ -133,6 +166,7 @@ public class Director : MVRScript
     private void UpdateActivation(string val)
     {
         Deactivate();
+        _camExposureBackup = _camExposureJSON.val;
         switch (val)
         {
             case Modes.NavigationRig:
@@ -174,6 +208,18 @@ public class Director : MVRScript
     {
         _lastStep = null;
 
+        if (_camExposureBackup != 0f)
+        {
+            _camExposureJSON.val = _camExposureBackup;
+            _camExposureBackup = 0f;
+        }
+
+        if (_transition != null)
+        {
+            _transition.Complete();
+            _transition = null;
+        }
+
         if (_navigationRigActive)
         {
             RestorePassenger();
@@ -200,13 +246,21 @@ public class Director : MVRScript
             // NOTE: activeStep is protected for some reason
             var currentStep = _pattern.steps.FirstOrDefault(step => step.active);
 
+            if (currentStep == null) return;
+
+            if (_transition != null)
+                UpdateTransition();
+
             if (_windowCameraActive)
-            {
                 UpdateWindowCamera(currentStep);
-            }
+
+            if (_transition != null)
+                UpdateTransition();
 
             if (_lastStep == currentStep)
                 return;
+
+            NextTransition();
 
             _lastStep = currentStep;
 
@@ -235,6 +289,23 @@ public class Director : MVRScript
             SuperController.LogError("Failed to update: " + e);
             Deactivate();
         }
+    }
+
+    private void NextTransition()
+    {
+        _transition?.Complete();
+        // TODO: 1f is the transition time. Set to null if disabled, option for fade or black. Get transition overrides from step. Start and end transition.
+        _transition = new Transition(_camExposureJSON, 0f, _camExposureBackup, 1f);
+    }
+
+    private void UpdateTransition()
+    {
+        if (!_transition.Update())
+            return;
+
+        _transition.Complete();
+        // TODO: create end transition
+        _transition = null;
     }
 
     private void UpdateWindowCamera(AnimationStep currentStep)
