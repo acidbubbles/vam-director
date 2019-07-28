@@ -31,7 +31,7 @@ public class DirectorStep : MVRScript
 
     private void InitControls()
     {
-        var atoms = SuperController.singleton.GetAtoms().Select(atom => atom.uid).ToList();
+        var atoms = SuperController.singleton.GetAtoms().Select(atom => atom.uid).OrderBy(uid => uid).ToList();
         atoms.Insert(0, "None");
 
         _atomJSON = new JSONStorableStringChooser("Passenger", atoms, "None", "Passenger");
