@@ -41,9 +41,13 @@ public class DirectorStep : MVRScript
         var linkPopup = CreateScrollablePopup(_atomJSON, false);
         linkPopup.popupPanelHeight = 600f;
 
-        CreateButton("Go To Step", true).button.onClick.AddListener(() =>
+        CreateButton("Set Time To This Step", true).button.onClick.AddListener(() =>
         {
             _step.animationParent.GetFloatJSONParam("currentTime").val = _step.timeStep;
+        });
+        CreateButton("Select Animation Pattern", true).button.onClick.AddListener(() =>
+        {
+            SuperController.singleton.SelectController(_step.animationParent.containingAtom.freeControllers.FirstOrDefault(fc => fc.name == "control"));
         });
     }
 }

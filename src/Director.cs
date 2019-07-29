@@ -199,6 +199,22 @@ public class Director : MVRScript
             if (nextStep != null)
                 currentTimeJSON.val = nextStep.timeStep;
         });
+        CreateButton("Teleport to Current Step", true).button.onClick.AddListener(() =>
+        {
+            var step = _pattern.steps.FirstOrDefault(s => s.active) ?? _pattern.steps.FirstOrDefault();
+            if (step == null) return;
+            UpdateNavigationRigPosition(step);
+            UpdateNavigationRigRotation(step);
+            Transform navigationRig = SuperController.singleton.navigationRig;
+            navigationRig.eulerAngles = new Vector3(navigationRig.eulerAngles.x, navigationRig.eulerAngles.y, 0f);
+            navigationRig.Translate(Vector3.back * 1f + Vector3.up * 0.2f, Space.Self);
+        });
+        CreateButton("Select Current Step", true).button.onClick.AddListener(() =>
+        {
+            var step = _pattern.steps.FirstOrDefault(s => s.active) ?? _pattern.steps.FirstOrDefault();
+            if (step == null) return;
+            SuperController.singleton.SelectController(step.containingAtom.freeControllers.FirstOrDefault(fc => fc.name == "control"));
+        });
     }
 
     private void PlayOnceFromBeginning()
