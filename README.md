@@ -19,3 +19,25 @@ To make the animation play once, make the last step OnActive event disable Direc
 ## License
 
 [MIT](LICENSE.md)
+
+## TODO
+
+- Automatically add the DirectorStep plugin on every step (make a .cslist, and inject a copy of the other script)
+- Transitions
+  - Fade, Black, None
+  - Duration
+  - Extend (stays black for a little while after fade)
+  - Begin / End
+  - Per step override
+- Exit automatically when
+  - Option A) The menu is open, stop immediately
+  - Option B) Make a follow button, aligned with the actual UI
+- Built-in "animation complete" handling (returns to None)
+- In Director, make a Select Step button, and in DirectorStep, make a Select Director button
+  - Can we automatically switch to the right plugin UI?
+  - Button to Teleport To Step in both Director and DirectorStep
+- Step options
+  - Set camera angle, Follow, Nothing
+  - Continue with another Director
+- Show duration in time, and instead of speed change time (will affect speed instead)
+  - Add step without changing existing step time

@@ -73,21 +73,23 @@ public class Director : MVRScript
         private readonly float _camExposureFrom;
         private readonly float _camExposureTo;
         private readonly float _duration;
+        private readonly bool _destroyOnComplete;
         private float _transitionTime = 0f;
 
-        public Transition(JSONStorableFloat camExposure, float camExposureFrom, float camExposureTo, float duration)
+        public Transition(JSONStorableFloat camExposure, float camExposureFrom, float camExposureTo, float duration, bool destroyOnComplete)
         {
             _camExposure = camExposure;
             _camExposureFrom = camExposureFrom;
             _camExposureTo = camExposureTo;
             _duration = duration;
+            _destroyOnComplete = destroyOnComplete;
         }
 
         public bool Update()
         {
             _transitionTime += Time.deltaTime;
             _camExposure.val = Mathf.Lerp(_camExposureFrom, _camExposureTo, _transitionTime / _duration);
-            return _transitionTime >= _duration;
+            return _destroyOnComplete && _transitionTime >= _duration;
         }
 
         public void Complete()
@@ -96,7 +98,12 @@ public class Director : MVRScript
         }
     }
 
+    private JSONStorableBool _activeJSON;
     private JSONStorableStringChooser _modeJSON;
+    private JSONStorableFloat _transitionTimeJSON;
+    private JSONStorableFloat _extendTransitionTime;
+
+    private JSONStorableAction _playOnceFromBeginningActionJSON;
 
     private Possessor _possessor;
     private AnimationPattern _pattern;
@@ -105,6 +112,7 @@ public class Director : MVRScript
     private Atom _windowCamera;
     private FreeControllerV3 _windowCameraController;
     private JSONStorableBool _activePassenger;
+    private JSONStorableFloat _speedJSON;
     private JSONStorableFloat _camExposureJSON;
 
     private bool _navigationRigActive;
@@ -113,6 +121,8 @@ public class Director : MVRScript
     private float _camExposureBackup;
     private NavigationRigBackup _navigationRigBackup;
     private WindowCameraBackup _windowCameraBackup;
+    private float _previousPatternTimeCounter;
+    private bool _deactivateOnComplete;
 
     public override void Init()
     {
@@ -121,10 +131,11 @@ public class Director : MVRScript
             _pattern = containingAtom.GetComponentInChildren<AnimationPattern>();
             if (_pattern == null) throw new Exception("The Director plugin can only be applied on AnimationPattern.");
             _possessor = SuperController.singleton.centerCameraTarget.transform.GetComponent<Possessor>();
+            _speedJSON = _pattern.GetFloatJSONParam("speed");
             _camExposureJSON = GameObject.FindObjectOfType<SkyshopLightController>()?.GetFloatJSONParam("camExposure");
 
             InitControls();
-            UpdateActivation(_modeJSON.val);
+            UpdateActivation();
         }
         catch (Exception e)
         {
@@ -134,19 +145,46 @@ public class Director : MVRScript
 
     private void InitControls()
     {
-        var defaultActive = Modes.None;
+        // Left side
+        _activeJSON = new JSONStorableBool(
+            "Active",
+            false,
+            new JSONStorableBool.SetBoolCallback(val => UpdateActivation())
+        );
+        RegisterBool(_activeJSON);
+        CreateToggle(_activeJSON, false);
+
+        var defaultMode = Modes.None;
 #if (VAM_DIAGNOSTICS)
-        defaultActive = Modes.WindowCamera;
+        defaultMode = Modes.WindowCamera;
 #endif
-        _modeJSON = new JSONStorableStringChooser("Mode", (new[] { Modes.None, Modes.NavigationRig, Modes.WindowCamera }).ToList(), defaultActive, "Mode", val => UpdateActivation(val));
+        _modeJSON = new JSONStorableStringChooser(
+            "Mode",
+            (new[] { Modes.None, Modes.NavigationRig, Modes.WindowCamera }).ToList(),
+            defaultMode,
+            "Mode",
+            new JSONStorableStringChooser.SetStringCallback(val => UpdateActivation())
+        );
         RegisterStringChooser(_modeJSON);
         var activePopup = CreateScrollablePopup(_modeJSON, false);
         activePopup.popupPanelHeight = 600f;
 
+        _transitionTimeJSON = new JSONStorableFloat("Transition Time", 0.6f, 0f, 1f, false);
+        RegisterFloat(_transitionTimeJSON);
+        CreateSlider(_transitionTimeJSON, false);
+
+        _extendTransitionTime = new JSONStorableFloat("Extend Transition Time", 0.2f, 0f, 1f, false);
+        RegisterFloat(_extendTransitionTime);
+        CreateSlider(_extendTransitionTime, false);
+
+        // Right side
         var currentTimeJSON = _pattern.GetFloatJSONParam("currentTime");
         if (currentTimeJSON == null)
-            throw new NullReferenceException("There was no currentTime JSON param on this animation pattern. Params: " + string.Join(", ", _pattern.GetAllParamAndActionNames().ToArray()));
-        CreateButton("Reset", true).button.onClick.AddListener(() => _pattern.ResetAnimation());
+            throw new NullReferenceException("There was no currentTime JSON param on this animation pattern.");
+
+        _playOnceFromBeginningActionJSON = new JSONStorableAction("Play From Beginning", () => PlayOnceFromBeginning());
+        RegisterAction(_playOnceFromBeginningActionJSON);
+        CreateButton("Play Once From Beginning", true).button.onClick.AddListener(() => PlayOnceFromBeginning());
         CreateButton("Play", true).button.onClick.AddListener(() => _pattern.Play());
         CreateButton("Pause", true).button.onClick.AddListener(() => _pattern.Pause());
         CreateButton("Previous Step", true).button.onClick.AddListener(() =>
@@ -163,11 +201,20 @@ public class Director : MVRScript
         });
     }
 
-    private void UpdateActivation(string val)
+    private void PlayOnceFromBeginning()
+    {
+        _pattern.ResetAndPlay();
+        _deactivateOnComplete = true;
+        _activeJSON.val = true;
+    }
+
+    private void UpdateActivation()
     {
         Deactivate();
+        if (!_activeJSON.val) return;
+
         _camExposureBackup = _camExposureJSON.val;
-        switch (val)
+        switch (_modeJSON.val)
         {
             case Modes.NavigationRig:
                 ActivateNavigationRig();
@@ -207,17 +254,12 @@ public class Director : MVRScript
     private void Deactivate()
     {
         _lastStep = null;
+        _transition = null;
 
         if (_camExposureBackup != 0f)
         {
             _camExposureJSON.val = _camExposureBackup;
             _camExposureBackup = 0f;
-        }
-
-        if (_transition != null)
-        {
-            _transition.Complete();
-            _transition = null;
         }
 
         if (_navigationRigActive)
@@ -240,27 +282,56 @@ public class Director : MVRScript
     {
         try
         {
-            if (!_navigationRigActive && !_windowCameraActive)
+            if (!_navigationRigActive && !_windowCameraActive || !_pattern.isActiveAndEnabled)
                 return;
 
-            // NOTE: activeStep is protected for some reason
+            // NOTE: _pattern.isPlaying is protected for some reason
+            var currentPatternTimeCounter = _pattern.GetCurrentTimeCounter();
+            var isPlaying = currentPatternTimeCounter != _previousPatternTimeCounter;
+            _previousPatternTimeCounter = currentPatternTimeCounter;
+
+            // NOTE: _pattern.activeStep is protected for some reason
             var currentStep = _pattern.steps.FirstOrDefault(step => step.active);
 
-            if (currentStep == null) return;
+            if (currentStep == null)
+            {
+#if (VAM_DIAGNOSTICS)
+                PrintDebugInfo();
+#endif
+                return;
+            }
 
-            if (_transition != null)
-                UpdateTransition();
+            if (_deactivateOnComplete && _pattern.GetCurrentTimeCounter() == _pattern.GetTotalTime())
+            {
+                _deactivateOnComplete = false;
+                _activeJSON.val = false;
+                _pattern.Pause();
+                _pattern.ResetAnimation();
+                return;
+            }
+
+            if (isPlaying)
+            {
+                if (_transition != null)
+                {
+                    UpdateTransition();
+                }
+                else
+                {
+                    float outTransitionStartTime = _transitionTimeJSON.val * _speedJSON.val + _extendTransitionTime.val * _speedJSON.val;
+                    if (_pattern.GetCurrentTimeCounter() >= currentStep.timeStep + currentStep.transitionToTime - outTransitionStartTime)
+                        CreateOutTransition();
+                }
+            }
 
             if (_windowCameraActive)
                 UpdateWindowCamera(currentStep);
 
-            if (_transition != null)
-                UpdateTransition();
-
             if (_lastStep == currentStep)
                 return;
 
-            NextTransition();
+            if (isPlaying)
+                CreateInTransition();
 
             _lastStep = currentStep;
 
@@ -291,11 +362,17 @@ public class Director : MVRScript
         }
     }
 
-    private void NextTransition()
+    private void CreateInTransition()
     {
         _transition?.Complete();
         // TODO: 1f is the transition time. Set to null if disabled, option for fade or black. Get transition overrides from step. Start and end transition.
-        _transition = new Transition(_camExposureJSON, 0f, _camExposureBackup, 1f);
+        _transition = new Transition(_camExposureJSON, 0f, _camExposureBackup, _transitionTimeJSON.val, true);
+    }
+
+    private void CreateOutTransition()
+    {
+        _transition?.Complete();
+        _transition = new Transition(_camExposureJSON, _camExposureBackup, 0f, _transitionTimeJSON.val, false);
     }
 
     private void UpdateTransition()
@@ -304,7 +381,6 @@ public class Director : MVRScript
             return;
 
         _transition.Complete();
-        // TODO: create end transition
         _transition = null;
     }
 
@@ -393,6 +469,7 @@ public class Director : MVRScript
         if (_lastStep == null)
         {
             SuperController.LogMessage("Director: Step (null)");
+            return;
         }
         var info = new System.Collections.Generic.List<string>();
         info.Add("Step " + _lastStep.containingAtom.name);
@@ -401,6 +478,9 @@ public class Director : MVRScript
         var target = GetStepPassengerTarget(_lastStep);
         if (target != null)
             info.Add(" [passenger]");
+        if (_deactivateOnComplete)
+            info.Add(" [once]");
+        info.Add(" time: " + _pattern.GetCurrentTimeCounter() + "s, step time: " + _lastStep.timeStep + "s/" + _pattern.GetTotalTime() + "s, dur: " + _lastStep.transitionToTime + "s, speed: " + _speedJSON.val);
 
         SuperController.LogMessage("Director: " + string.Join(", ", info.ToArray()));
     }
