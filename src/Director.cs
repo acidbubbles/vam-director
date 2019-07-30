@@ -1,5 +1,6 @@
 #define VAM_DIAGNOSTICS
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
@@ -133,6 +134,8 @@ public class Director : MVRScript
             _possessor = SuperController.singleton.centerCameraTarget.transform.GetComponent<Possessor>();
             _speedJSON = _pattern.GetFloatJSONParam("speed");
             _camExposureJSON = GameObject.FindObjectOfType<SkyshopLightController>()?.GetFloatJSONParam("camExposure");
+            SuperController.singleton.onAtomUIDsChangedHandlers += OnAtomUIDsChanged;
+            OnAtomUIDsChanged(SuperController.singleton.GetAtomUIDs());
 
             InitControls();
             UpdateActivation();
@@ -140,6 +143,55 @@ public class Director : MVRScript
         catch (Exception e)
         {
             SuperController.LogError("Failed to initialize plugin: " + e);
+        }
+    }
+
+    private void OnAtomUIDsChanged(List<string> atomUIDs)
+    {
+        try
+        {
+            string stepScriptUrl = null;
+            var animationPatternPluginManager = containingAtom.gameObject.GetComponentInChildren<MVRPluginManager>();
+            var plugins = animationPatternPluginManager.GetJSON()["plugins"].AsObject;
+            // SuperController.LogMessage(animationPatternPluginManager.name + ": " + animationPatternPluginManager.GetJSON().ToString());
+            // return;
+            if(plugins == null) throw new Exception("1");
+            if(plugins.Keys == null) throw new Exception("2");
+            foreach (var key in plugins.Keys)
+            {
+                var url = plugins[key].Value;
+                if (url.EndsWith("Director.cs"))
+                {
+                    stepScriptUrl = url.Substring(0, url.Length - "Director.cs".Length) + "DirectorStep.cs";
+                    break;
+                }
+            }
+            if (stepScriptUrl == null)
+            {
+                SuperController.LogError("Failed to load Director.cs url; did you rename the plugin?");
+                return;
+            }
+            foreach (var step in _pattern.steps)
+            {
+                // var stepPluginManagerJSON = step.containingAtom.GetStorableByID("PluginManager");
+                //                 var stepPluginManager = step.containingAtom.gameObject.GetComponentInChildren<MVRPluginManager>();
+                // SuperController.LogMessage("Step " + step.containingAtom.name + ": " + string.Join(", ", step.containingAtom.GetStorableIDs().ToArray()));
+                // If the plugin is already there, continue
+                if (step.containingAtom.GetStorableIDs().Any(id => id.EndsWith("_DirectorStep"))) continue;
+                // Add a new plugin
+                var ui = step.containingAtom.GetComponentInChildren<MVRPluginManagerUI>(true);
+                if(ui == null) throw new NullReferenceException("Could not find the UI");
+                var urlParamsUIDsBefore = manager.GetUrlParamNames();
+                return;
+                ui.addPluginButton.onClick.Invoke();
+                var urlParamUID = manager.GetUrlParamNames().Except(urlParamsUIDsBefore).FirstOrDefault();
+                var urlParam = manager.GetUrlJSONParam(urlParamUID);
+                urlParam.val = stepScriptUrl;
+            }
+        }
+        catch (Exception exc)
+        {
+            SuperController.LogError("Failed to automatically inject DirectorStep.cs on animation steps: " + exc);
         }
     }
 
@@ -476,6 +528,11 @@ public class Director : MVRScript
     public void OnDisable()
     {
         Deactivate();
+    }
+
+    public void OnDestroy()
+    {
+        SuperController.singleton.onAtomUIDsChangedHandlers -= OnAtomUIDsChanged;
     }
 
 #if (VAM_DIAGNOSTICS)
