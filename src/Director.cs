@@ -107,6 +107,7 @@ public class Director : MVRScript
 
     private Possessor _possessor;
     private AnimationPattern _pattern;
+    private MeshRenderer _navigationHologridRenderer;
     private Transition _transition;
     private AnimationStep _lastStep;
     private Atom _windowCamera;
@@ -114,10 +115,10 @@ public class Director : MVRScript
     private JSONStorableBool _activePassenger;
     private JSONStorableFloat _speedJSON;
     private JSONStorableFloat _camExposureJSON;
-
     private bool _navigationRigActive;
     private bool _windowCameraActive;
     private bool _failedOnce;
+    private bool? _navigationHologridEnabledBackup;
     private float _camExposureBackup;
     private NavigationRigBackup _navigationRigBackup;
     private WindowCameraBackup _windowCameraBackup;
@@ -133,6 +134,7 @@ public class Director : MVRScript
             _possessor = SuperController.singleton.centerCameraTarget.transform.GetComponent<Possessor>();
             _speedJSON = _pattern.GetFloatJSONParam("speed");
             _camExposureJSON = GameObject.FindObjectOfType<SkyshopLightController>()?.GetFloatJSONParam("camExposure");
+            _navigationHologridRenderer = SuperController.singleton.navigationHologrid.gameObject.GetComponent<MeshRenderer>();
 
             InitControls();
             UpdateActivation();
@@ -246,6 +248,8 @@ public class Director : MVRScript
         _failedOnce = false;
         _navigationRigBackup = NavigationRigBackup.Snapshot();
         _navigationRigActive = true;
+        _navigationHologridEnabledBackup = _navigationHologridRenderer.enabled;
+        _navigationHologridRenderer.enabled = false;
     }
 
     private void ActivateWindowCamera()
@@ -276,6 +280,12 @@ public class Director : MVRScript
         {
             _camExposureJSON.val = _camExposureBackup;
             _camExposureBackup = 0f;
+        }
+
+        if (_navigationHologridEnabledBackup.HasValue)
+        {
+            _navigationHologridRenderer.enabled = _navigationHologridEnabledBackup.Value;
+            _navigationHologridRenderer = null;
         }
 
         if (_navigationRigActive)
