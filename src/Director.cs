@@ -189,15 +189,15 @@ public class Director : MVRScript
         CreateButton("Pause", true).button.onClick.AddListener(() => _pattern.Pause());
         CreateButton("Previous Step", true).button.onClick.AddListener(() =>
         {
-            var previousStep = _pattern.steps.Reverse().SkipWhile(s => !s.active).Skip(1).FirstOrDefault();
-            if (previousStep != null)
-                currentTimeJSON.val = previousStep.timeStep;
+            var previousStep = _pattern.steps.Reverse().SkipWhile(s => !s.active).Skip(1).FirstOrDefault() ?? _pattern.steps.FirstOrDefault();
+            if (previousStep == null) return;
+            currentTimeJSON.val = previousStep.timeStep;
         });
         CreateButton("Next Step", true).button.onClick.AddListener(() =>
         {
-            var nextStep = _pattern.steps.SkipWhile(s => !s.active).Skip(1).FirstOrDefault();
-            if (nextStep != null)
-                currentTimeJSON.val = nextStep.timeStep;
+            var nextStep = _pattern.steps.SkipWhile(s => !s.active).Skip(1).FirstOrDefault() ?? _pattern.steps.FirstOrDefault();
+            if (nextStep == null) return;
+            currentTimeJSON.val = nextStep.timeStep;
         });
         CreateButton("Teleport to Current Step", true).button.onClick.AddListener(() =>
         {
@@ -317,7 +317,7 @@ public class Director : MVRScript
                 return;
             }
 
-            if (_deactivateOnComplete && _pattern.GetCurrentTimeCounter() == _pattern.GetTotalTime())
+            if (_deactivateOnComplete && (!isPlaying || _pattern.GetCurrentTimeCounter() == _pattern.GetTotalTime() || _pattern.GetTotalTime() == 0))
             {
                 _deactivateOnComplete = false;
                 _activeJSON.val = false;
