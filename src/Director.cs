@@ -106,6 +106,7 @@ public class Director : MVRScript
     private JSONStorableAction _playOnceFromBeginningActionJSON;
 
     private Possessor _possessor;
+    private JSONStorableFloat _currentTimeJSON;
     private AnimationPattern _pattern;
     private MeshRenderer _navigationHologridRenderer;
     private Transition _transition;
@@ -132,6 +133,7 @@ public class Director : MVRScript
             _pattern = containingAtom.GetComponentInChildren<AnimationPattern>();
             if (_pattern == null) throw new Exception("The Director plugin can only be applied on AnimationPattern.");
             _possessor = SuperController.singleton.centerCameraTarget.transform.GetComponent<Possessor>();
+            _currentTimeJSON = _pattern.GetFloatJSONParam("currentTime");
             _speedJSON = _pattern.GetFloatJSONParam("speed");
             _camExposureJSON = GameObject.FindObjectOfType<SkyshopLightController>()?.GetFloatJSONParam("camExposure");
             _navigationHologridRenderer = SuperController.singleton.navigationHologrid.gameObject.GetComponent<MeshRenderer>();
@@ -148,6 +150,7 @@ public class Director : MVRScript
     private void InitControls()
     {
         // Left side
+
         _activeJSON = new JSONStorableBool(
             "Active",
             false,
@@ -180,9 +183,6 @@ public class Director : MVRScript
         CreateSlider(_extendTransitionTime, false);
 
         // Right side
-        var currentTimeJSON = _pattern.GetFloatJSONParam("currentTime");
-        if (currentTimeJSON == null)
-            throw new NullReferenceException("There was no currentTime JSON param on this animation pattern.");
 
         _playOnceFromBeginningActionJSON = new JSONStorableAction("Play From Beginning", () => PlayOnceFromBeginning());
         RegisterAction(_playOnceFromBeginningActionJSON);
@@ -191,15 +191,29 @@ public class Director : MVRScript
         CreateButton("Pause", true).button.onClick.AddListener(() => _pattern.Pause());
         CreateButton("Previous Step", true).button.onClick.AddListener(() =>
         {
-            var previousStep = _pattern.steps.Reverse().SkipWhile(s => !s.active).Skip(1).FirstOrDefault() ?? _pattern.steps.FirstOrDefault();
-            if (previousStep == null) return;
-            currentTimeJSON.val = previousStep.timeStep;
+            var previousStep = _pattern.steps.Reverse().SkipWhile(s => !s.active).Skip(1).FirstOrDefault();
+            if (previousStep != null)
+            {
+                _currentTimeJSON.val = previousStep.timeStep == 0 ? float.Epsilon : previousStep.timeStep;
+            }
+            else if (_pattern.steps.Length > 0f)
+            {
+                _currentTimeJSON.val = 0.1f;
+                _currentTimeJSON.val = 0f;
+            }
         });
         CreateButton("Next Step", true).button.onClick.AddListener(() =>
         {
-            var nextStep = _pattern.steps.SkipWhile(s => !s.active).Skip(1).FirstOrDefault() ?? _pattern.steps.FirstOrDefault();
-            if (nextStep == null) return;
-            currentTimeJSON.val = nextStep.timeStep;
+            var nextStep = _pattern.steps.SkipWhile(s => !s.active).Skip(1).FirstOrDefault();
+            if (nextStep != null)
+            {
+                _currentTimeJSON.val = nextStep.timeStep;
+            }
+            else if (_pattern.steps.Length > 0f && !_pattern.steps.Any(s => s.active))
+            {
+                _currentTimeJSON.val = 0.1f;
+                _currentTimeJSON.val = 0f;
+            }
         });
         CreateButton("Teleport to Current Step", true).button.onClick.AddListener(() =>
         {
