@@ -282,10 +282,10 @@ public class Director : MVRScript
             _camExposureBackup = 0f;
         }
 
-        if (_navigationHologridEnabledBackup.HasValue)
+        if (_navigationHologridEnabledBackup != null)
         {
             _navigationHologridRenderer.enabled = _navigationHologridEnabledBackup.Value;
-            _navigationHologridRenderer = null;
+            _navigationHologridEnabledBackup = null;
         }
 
         if (_navigationRigActive)
