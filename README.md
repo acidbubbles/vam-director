@@ -2,6 +2,8 @@
 
 Controls where the "camera" is by moving it to sequential Animation Pattern steps. Compatible with [Passenger](https://github.com/acidbubbles/vam-passenger) for moving in and out of POV mode.
 
+> Check out [Director on Virt-A-Mate Hub](https://hub.virtamate.com/resources/director.105/)
+
 ## How to use
 
 1. Add the `Director.cs` file to an `Animation Pattern`. I suggest renaming the atom to `Director`.
